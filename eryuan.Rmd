@@ -1,0 +1,412 @@
+---
+title: "Binary Visualization"
+author: "Kang Xinyi"
+date: '2019-05-23'
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  html_notebook:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+# 读入处理完成之后的数据（加了几列）
+```{r}
+loan_cleaned=read.csv("C:\\Users\\康新艺\\Desktop\\BinaryVisualization\\loan_cleaned.csv")
+```
+
+```{r}
+library("readr") # data input
+library('tidyr') # data wrangling
+library('dplyr') # data manipulation
+library('stringr') # string manipulation
+library('ggplot2') # visualization
+library('ggthemes') # visualization
+library('corrplot',quietly = TRUE) # visualization
+library('lubridate') # date and time
+library('purrr') # data manipulation
+library('cowplot')
+library(plotly)
+library(maps)
+library(viridis)
+```
+
+
+# loan_status处理
+```{r}
+options(repr.plot.width=24, repr.plot.height=16)
+
+loan_status.pct <- loan_cleaned %>% group_by(loan_status) %>% 
+dplyr::summarise(count=n()) %>% mutate(pct=count/sum(count))
+
+ggplot(loan_status.pct, aes(x=reorder(loan_status, pct), y=pct, colour=loan_status, fill=loan_status)) +
+  geom_bar(stat="identity",aes(color = I('black')), size = 0.1)+ coord_flip()+ 
+theme(legend.position = "none")+ xlab("Percent") + ylab("Loan_Status")
+```
+
+The target variable column Loan_status has 10 categories
+Our goal is to find out the driving factors for loan getting charged off, so we will only consider the data from Fully paid and charged off category, where we know the exact outcome of the loan category.
+And insert a new column with binary values for the fully paid column as 1 and charged off as 0.
+
+```{r}
+loan_cleaned <- filter(loan_cleaned, loan_cleaned$loan_status == "Fully Paid" | loan_cleaned$loan_status == "Charged Off")
+loan_cleaned <- mutate(loan_cleaned, binary_status=as.numeric(ifelse(loan_cleaned$loan_status == "Fully Paid", 1, 0)))
+```
+
+# 二元分析(基本都与loan_status有关)  第三篇
+
+## 1.期限与违约（贷款状态）Default with respect to Term
+The percentage of default in case of loans with 60 months term is higher as compared to the loans with 36 months term.
+```{r}
+options(repr.plot.width=12, repr.plot.height=8)
+#i. Term and Loan Status
+ggplot(loan_cleaned, aes(x =term, fill = loan_status)) + geom_bar(stat='count', position='fill', aes(color = I('black')), size = 0.1) + 
+labs(x = 'Term') + 
+ylab("Percent of default Vs No default") +theme_few()
+```
+
+## 2.等级与违约Default with respect to Grade
+increases with increase in Grade from A-G, which clearly indicates that a loan with grade A means lowest risk of loan default and G means higher risk of loan default.
+```{r}
+ggplot(loan_cleaned, aes(x = grade, fill = loan_status)) + geom_bar(stat='count', position='fill', aes(color = I('black')), size = 0.1) + 
+labs(x = 'Grade') + scale_fill_discrete(name="Loan_Status") +theme_few()
+```
+
+## 3.工作年数与违约Default with respect to Employee Length
+Loan default is almost equal in case of all employment length(i.e. years of experience)
+```{r}
+ggplot(filter(loan_cleaned, emp_length != 'n/a'), aes(x =emp_length, fill = loan_status)) + 
+geom_bar(stat='count', position='fill', aes(color = I('black')), size = 0.1) +labs(x = 'emp_length') + 
+  scale_fill_discrete(name="Loan_Status") + 
+theme(axis.text.x = element_text(angle = 45, vjust = 0.8, hjust=1))
+```
+
+## 4.房屋所有权相关与违约Default with respect to Home Ownership
+The default rate in Own, rent and mortgage home status is almost same
+```{r}
+ggplot(loan_cleaned, aes(x =home_ownership, fill = loan_status)) + 
+geom_bar(stat='count', position='fill', aes(color = I('black')), size = 0.1) +labs(x = 'home_ownership') +
+  scale_fill_discrete(name="Loan_Status") +theme_few()
+```
+
+## 5.验证状态与违约Verification status with respect to default
+The default rate in verified category is slightly more than non verified categories
+```{r}
+ggplot(loan_cleaned, aes(x =verification_status, fill = loan_status)) + 
+geom_bar(stat='count', position='fill', aes(color = I('black')), size = 0.1) +labs(x = 'Verification_status',  
+y="Percent of default Vs No default") +
+  theme_few()
+```
+
+## 6.目的与违约Purpose of Loan with respect to Default
+The default rate in small business category is highest as compared to other categories.
+```{r}
+loan_cleaned %>% group_by(purpose) %>% summarise(default.pct = (1-sum(binary_status)/n())) %>% 
+ggplot(aes(x = reorder(purpose, default.pct), y = default.pct)) +
+  geom_bar(stat = "identity", fill =  "coral", aes(color = I('black')), size = 0.1)+coord_flip()+xlab("Purpose") + ylab("default percent")+ 
+theme_few()
+```
+
+## 7.所在州与违约State with respect to default
+The default rate in the state of TENESSE (which is more than 20%) is high as compared to other states
+```{r}
+options(repr.plot.width=6, repr.plot.height=8)
+#vii. State and Loan Status
+state.status <- loan_cleaned %>% group_by(addr_state) %>% 
+summarise(default.pct = (1-sum(binary_status)/n()))
+ggplot(state.status, aes(x = reorder(addr_state, default.pct), y = default.pct)) +
+  geom_bar(stat = "identity", fill = "lightblue2", aes(color = I('white')), size = 0.1)+coord_flip()+xlab("States") + ylab("default percent")+ 
+theme_few()
+```
+
+## 8.各个数值变量在目标变量贷款状态下的表现
+Segmented Univariate analysis on Continous variables- We will now see the performance of our numeric variables on our target variable loan status.
+
+(1)
+```{r}
+options(repr.plot.width=6, repr.plot.height=4)
+#i. Loan Amount and Loan Status
+ggplot(loan_cleaned, aes(x= loan_amnt)) + geom_density(aes(fill = as.factor(loan_status)))+  
+xlab("Loan_amount")+theme_few()
+#Incidences of loan default can be seen when the loan amount is above 10,000
+```
+(2)
+```{r}
+#ii. Interest Rate and Loan Status
+ggplot(loan_cleaned, aes(x= int_rate, fill = loan_status)) +
+geom_histogram(bins = 10, position = "fill", aes(color = I('black')), size = 0.1)+ 
+xlab("Interest Rate")+ 
+ylab("Percent of default Vs No default")+theme_few()
+ggplot(loan_cleaned, aes(x = loan_status, y = int_rate, fill = loan_status)) + geom_boxplot()
+#ii. High interest rate is definitely linked to more number of defaults except for few outliers
+```
+
+(3)
+```{r}
+#iii. Debt to Income(dti) and Loan Status
+ggplot(loan_cleaned, aes(x= dti, fill = loan_status)) + geom_density()+  
+theme_few()
+#default increases when the dti is above 20
+```
+
+(4)
+```{r}
+#iv. Number of inquiries made in last 6 months and Loan Status
+ggplot(loan_cleaned, aes(x= factor(inq_last_6mths), fill = factor(loan_status))) + 
+geom_bar(position = "fill", aes(color = I('black')), size = 0.1)+   
+xlab("Inquiry in Last 6 months")+ 
+ylab("Percent of default Vs No default")+theme_few()
+ggplot(loan_cleaned, aes(x = loan_status, y = inq_last_6mths, fill = loan_status)) + geom_boxplot()
+#The Median and IQR is high for inquiries made in last 6 months for the Charged off category 
+#as compared to Fully paid category, except for few outliers.
+```
+
+(5)
+```{r}
+#v. Revolving Utilization(debt to limit) and Loan Status
+ggplot(subset(loan_cleaned, revol_util <= 100), aes(x= revol_util, fill = loan_status)) + 
+geom_density()+ theme_few()
+#Incidences of default can be seen when the revolving utilization percent is higher than 50.
+```
+
+
+# 二元分析 第四篇
+```{r}
+library('lattice')
+library('latticeExtra')
+library('vcd')
+```
+
+## 1.贷款金额与贷款等级
+To distribution of the loan amount using histogram according to the type of loan grade
+```{r}
+ggplot(data=loan_cleaned,aes(loan_amnt, col=grade))+
+  geom_histogram(bins=40) + 
+  facet_grid(grade ~ .)
+```
+
+```{r}
+ggplot(data=loan_cleaned,aes(loan_amnt, fill=grade))+
+  geom_density(alpha=0.25) + 
+  facet_grid(grade ~ .)
+```
+
+## 2.贷款等级与贷款总额
+To examine the total loan amount based on loan grade
+```{r}
+ggplot(loan_cleaned, aes(x=grade, y=loan_amnt, fill=grade)) +
+  stat_summary(fun.y="sum", geom="bar") +
+  labs(y ="Total Loan Amount",title="Total loan amount based on loan grade")
+```
+From the different plots such as histogram, density plot and the above bar chart, we can observe that maximum lending was in Grade C.
+
+## 3.房屋所有权与贷款金额
+To examine the distribution of loan amount according to ownership of house
+```{r}
+ggplot(data=loan_cleaned, aes(home_ownership,loan_amnt,fill=home_ownership))+geom_boxplot(outlier.color = "blue")+labs(title="Box plot of loan amount")
+```
+
+## 4.研究变量之间的相关性:贷款金额、融资额和分期付款金额(应该是多元分析吧)
+To examine the correlation among variables: loan amout, funded amount and installment amount
+```{r}
+data2 <- data.frame(loanamt =loan_cleaned$loan_amnt, intr =loan_cleaned$int_rate,fund= loan_cleaned$funded_amnt, instlmnt = loan_cleaned$installment)
+#head(data2)
+M<- cor(data2)
+corrplot(M,method = "color")
+```
+
+```{r}
+corrplot(M, method="number")
+```
+
+Two variables are said to be correlated when the correlation co-efficient value is greater than 0.5. From the plot, we can see that loan amount is highly correlated to installment amout. Likewise, fund and loan amount as well as fund and instalment amount are correlated.
+
+## 5.比较不同贷款等级的付款总额和融资额(三元分析)
+To compare the total payment and funded amount for different loan grades
+```{r}
+loan_cleaned%>%group_by(grade)%>%summarise(tamt=mean(total_pymnt)) -> data1
+loan_cleaned%>%group_by(grade)%>%summarise(famt = mean(funded_amnt))-> data3
+plot1 <- barchart(tamt ~ grade, data=data1, xlab="Grade", ylab="Average Payment")
+plot2 <- xyplot(famt~as.factor(grade), data=data3, type="l", ylab = "Average funded amount")
+doubleYScale(plot1, plot2, style1 = TRUE, add.ylab2 = TRUE)
+```
+
+## 6.州与贷款总额
+addr_state里面有个异常值“16.33”，所以删除了第38041行。
+Viewing loan amount statewise
+```{r}
+ggplot(loan_cleaned, aes(x=addr_state, y=loan_amnt, fill=addr_state)) +
+  stat_summary(fun.y="sum", geom="bar") + coord_flip()+
+  labs(y ="Total Loan Amount",x="State",title="Bar Chart of loan amount for each state")
+```
+
+## 7.所有州的贷款金额热图
+Heatmap of loan amount statewise
+```{r}
+loan_cleaned$region <- loan_cleaned$addr_state
+loan_cleaned$region <- as.factor(loan_cleaned$region)
+levels(loan_cleaned$region)<- c("alaska", "alabama","arkansas", "arizona", "california","colorado","connecticut","district of columbia","delaware","florida","georgia","hawaii","iowa","idaho","illinois","indiana","kansas","kentucky","louisiana","massachusetts","maryland","maine","michigan","minnesota","missouri","mississippi","montana","north carolina","north dakota","nebraska","new hampshire","new jersey","new mexico","nevada","new york","ohio","oklahoma","oregon","pennsylvania","rhode island","south carolina","south dakota","tennessee","texas","utah","virginia","vermont","washington","wisconsin","west virginia","wyoming")
+
+all_states <- map_data("state")
+state_by_loan <-loan_cleaned %>% group_by(region) %>%
+                summarise(value = sum(loan_amnt, na.rm=TRUE))
+state_by_loan$region <- as.character(state_by_loan$region)
+
+Total <- merge(all_states, state_by_loan, by="region")
+
+p <- ggplot()
+p <- p + geom_polygon(data=Total, aes(x=long, y=lat, group = group, fill=Total$value),colour="white"
+      ) + scale_fill_continuous(low = "skyblue", high = "darkblue", guide="colorbar")
+P1 <- p + theme_bw()  + labs(fill = "Gradient of loan amount" 
+                            ,title = "Heat Map of loan amount in all states", x="", y="")
+P1 + scale_y_continuous(breaks=c()) + scale_x_continuous(breaks=c()) + theme(panel.border =  element_blank())
+```
+From both the plots, loan amount amount lended is highest in California.
+
+# 二元分析  第五篇
+```{r}
+library(gmodels)
+library(gridExtra)
+library(tidyverse)
+library(wordcloud2)
+```
+
+自己定义一个画图的模式？
+```{r}
+options(scipen=999)
+mytheme <- theme(axis.text.x=element_text(angle =90, size=8, vjust = 0.4),
+                  plot.title=element_text(size=10, vjust = 2, family="Georgia",face = "bold", margin = margin(b = 15)),
+                  axis.title.y = element_text(size=8,margin = margin(r = 20)),
+                  axis.title.x =element_text(size=8, vjust = -0.35, margin = margin(t = 20)),
+                  plot.background = element_rect(fill = "#EDEFF7"),
+                  panel.background = element_rect(fill = "#EDEFF7" ),
+                  legend.background = element_rect(fill = "#EDEFF7"),
+                  legend.title = element_text(size = 10, family = "Arial", face = "bold"),
+                  legend.text = element_text(size = 8, family = "Arial"),
+                  panel.grid.major = element_line(size = 0.4, linetype = "solid", color = "#cccccc"),
+                  panel.grid.minor = element_line(size = 0),
+                  axis.ticks = element_blank(),
+                  plot.margin = unit(c(0.5, 1, 1, 1), "cm")
+)
+colors = c("#9E0142", "#D53E4F", "#F46D43" ,"#FDAE61", "#FEE08B", "#e7fe8b","#bcfe8b","#8bfeb1","#8bc4fe","#8b96fe","#ad8bfe","#d98bfe","#fe8bd1","#fe8b96")
+```
+
+
+## 1.工作年数与贷款金额
+```{r message=FALSE, warning=FALSE}
+ggplot(loan_cleaned,aes(x=emp_length,fill=emp_length))+geom_bar(stat="count")+mytheme+labs(x="Employment Length",title="Distribution of Employment Length")+theme(legend.position="")+scale_fill_manual(values=colors)
+```
+
+## 2.时间与处理贷款数量
+```{r}
+loan_cleaned$issue_month<-substr(loan_cleaned$issue_d,6,7)
+loan_cleaned$issue_year<-substr(loan_cleaned$issue_d,1,4)
+```
+
+```{r warning=FALSE}
+options(repr.plot.width=7, repr.plot.height=4)
+loan_cleaned %>% group_by(issue_year,issue_month)%>%summarise(lcnt=n())%>%ggplot(aes(x=issue_month,y=lcnt,group=1,col=issue_month))+geom_line()+facet_wrap(~issue_year)+geom_point()+mytheme+scale_fill_manual()+theme(legend.position="")+labs(x="Loan Processed Month",y="Count",title="Loans processed in each month/Year")
+options(repr.plot.width=5, repr.plot.height=4)
+loan_cleaned %>% group_by(issue_year)%>%summarise(lycnt=n())%>%ggplot(aes(x=issue_year,y=lycnt,group=1,col=issue_year))+geom_line(size=1.5)+geom_point(size=2)+mytheme+scale_fill_manual()+theme(legend.position="")+labs(x="Year",y="Count",title="Loans processed in each Year")
+```
+
+## 3.时间与贷款金额
+```{r warning=FALSE}
+options(repr.plot.width=5, repr.plot.height=4)
+loan_cleaned %>% group_by(issue_year)%>%summarise(lamt=sum(loan_amnt))%>%ggplot(aes(x=issue_year,y=lamt,group=1))+geom_line(size=1.5,col="#9E0142")+geom_point(size=2,col="#DFF985")+mytheme+theme(legend.position="")+labs(x="Year",y="Loan Amount",title="Loan Amount processed in Years")
+```
+
+## 4.目的与数量
+```{r warning=FALSE}
+options(repr.plot.width=5, repr.plot.height=4)
+loan_cleaned %>% ggplot(aes(x=purpose,fill=purpose))+geom_bar(stat="count")+mytheme+scale_fill_manual(values=colors)+theme(legend.position="")
+```
+
+## 5.州与数量
+```{r warning=FALSE}
+options(repr.plot.width=5, repr.plot.height=4)
+loan_cleaned %>% select(addr_state)%>%group_by(addr_state)%>%summarise(scnt=n())%>%ggplot(aes(x=addr_state,y=scnt,group=1))+geom_line(stat="identity",col="#FF3421",size=1)+mytheme+labs(x="State",y="count",title="Loan counts per State")
+```
+
+## 6.贷款率与贷款金额
+```{r warning=FALSE}
+ggplot(loan_cleaned, aes(cut(int_rate,5.5),loan_amnt,fill=cut(int_rate,5.5)))+geom_violin()+mytheme+scale_fill_manual(values=colors)+stat_summary(fun.data=mean_sdl,  
+                 geom="pointrange", color="black")+labs(x="Interest Rate",y="Loan Amount",title="Does Interest Rate increses with Loan Amount?")+theme(legend.position = "")
+```
+
+## 7.installment、loan_amnt、loan_status三元
+```{r warning=FALSE}
+options(repr.plot.width=10, repr.plot.height=7)
+ggplot(loan_cleaned,aes(x=installment,y=loan_amnt,col=cut(int_rate,3)))+geom_bar(stat="identity",size=1)+facet_wrap(~loan_status)+mytheme+scale_color_manual(values=                                                                                                                             c("#efe928","#33c14b","#732ded","#435af4","#f443ee"))+labs(title="Does Installement and Interest rate effects loan status")
+```
+
+## 8.目的与贷款金额
+```{r warning=FALSE}
+loan_cleaned %>%select(purpose,loan_amnt)%>%ggplot(aes(x=purpose,y=loan_amnt,col=purpose))+geom_jitter(size=0.5)+mytheme+scale_color_manual(values=colors)+theme(legend.position = "")+labs(title="What are the puposes of loans")
+```
+
+# 二元分析  第六篇
+```{r}
+library(magrittr)
+```
+
+## 1.贷款期限term与贷款金额
+```{r}
+histogram( ~ loan_amnt | term, data=loan_cleaned, xlab="Loan Amount", ylab="Percentage of total data points",layout=c(1,4))
+```
+
+## 2.基于用途的贷款金额频率多边形
+```{r}
+ggplot(data=loan_cleaned, aes(x=loan_amnt,col=purpose))+ geom_freqpoly(binwidth = 5000)
+```
+
+```{r}
+ggplot(data=loan_cleaned, aes(x=loan_amnt,y=..density.. ,col=purpose))+ geom_freqpoly(binwidth = 5000, centre = 2500)
+```
+
+## 3.目的与贷款金额脊柱图
+```{r}
+spineplot(grade ~loan_amnt, data=loan_cleaned)
+```
+
+## 4.目的与贷款状态马赛克图
+```{r}
+mosaic(~grade + term,gp=shading_max,split_vertical=T,data = loan_cleaned)
+```
+There is a high correlation between Grade and term. Grade A and B prefer 36 months term while C,D,E,F,G prefer 60 months term.
+
+## 5.按用途分组的等级与贷款金额小提琴图
+```{r}
+loan_cleaned %>% filter(purpose=="credit_card") -> lc 
+bwplot( grade ~ loan_amnt | purpose,
+        panel = panel.violin,
+        box.ratio = 3,         # Decides box width
+        data = lc,
+        layout=c(1,3) )
+```
+
+## 6.房屋所有权与验证状态的卡方检验
+```{r}
+p<-table(loan_cleaned$home_ownership,loan_cleaned$verification_status)
+chisq.test(p)
+```
+There is a high correlation between home ownership and verification status.
+
+## 7.相关分析(公式无图)Correlation Analysis
+```{r}
+g<-cor(select_if(loan_cleaned, is.numeric))   # select_if() is a dplyr function
+```
+
+```{r}
+colnames(g) 
+```
+
+（只举一个例子，还可以算别的）
+```{r}
+cor(loan_cleaned$loan_amnt,loan_cleaned$installment)
+```
+

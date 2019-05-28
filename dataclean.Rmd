@@ -1,0 +1,166 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+--- 
+```{r}
+library("readr") # data input
+library("tidyr") # data wrangling
+library("dplyr") # data manipulation
+library("stringr")
+library("ggplot2")
+library('ggthemes') # visualization
+library('corrplot') # visualization
+library('lubridate') # date and time
+library('purrr') # data manipulation
+library('cowplot')
+library(plotly)
+library(maps)
+library(viridis)
+library(Hmisc)
+```
+
+
+# 1.数据概述
+
+```{r}
+loan <- read.csv("F:\\loan.csv")
+dim(loan)
+colnames(loan)
+glimpse(loan)
+summary(loan)
+```
+
+#2.数据清理
+
+## 2.1删除重复数据
+
+删除重复数据
+```{r}
+sum(duplicated(loan))
+```
+
+## 2.2缺失值处理与分析属性的确定
+
+```{r}
+colSums(is.na(loan))
+```
+
+
+
+```{r}
+options(repr.plot.width=6, repr.plot.height=8)
+missing_data <- loan %>% summarise_all(funs(sum(is.na(.))/n()))
+missing_data <- gather(missing_data, key = "variables", value = "percent_missing") 
+ggplot(missing_data, aes(x = reorder(variables, percent_missing), y = percent_missing)) +
+  geom_bar(stat = "identity", fill = "red", aes(color = I('white')), size = 0.1)+coord_flip()+ theme_few()
+```
+
+```{r}
+loan_cleaned <- loan[, -which(colMeans(is.na(loan)) > 0.1)]
+```
+
+```{r}
+colnames(loan_cleaned)
+```
+<ul>
+<li>可以删除id、member_id、url列，因为它们具有唯一的值，仅用于贷款标识。</li>
+
+<li>可以删除zipcode列，因为它只有前三位数字，并且状态列可以获取该信息。</li>
+
+<li>我们也可以删除emp_title，因为它有超过280000个唯一的emp_title和大约6%的na值，输入这些值或从相关数据中删除50000行将导致数据丢失，因此我们将删除该列本身。同理我们也可以删掉desc变量</li>
+
+</ul>
+```{r}
+loan_cleaned <- within(loan_cleaned, rm('member_id', 'id', 'url', 'emp_title',"zip_code","desc","title"))
+```
+
+我们还将删除在决定是否批准贷款时不存在的变量，并保留与客户信息和客户人口统计相关的变量
+funded_amnt, funded_amnt_inv, out_prncp, out_prncp_inv, total_pymnt, total_pymnt_inv, total_rec_int, total_rec_late_fee, total_rec_prncp等变量基本上都是客户付款行为参数，在决策过程中不可用。
+
+
+```{r}
+loan_cleaned <- within(loan_cleaned,rm("funded_amnt","funded_amnt_inv","out_prncp", "out_prncp_inv", "total_pymnt", "total_pymnt_inv", "total_rec_int", "total_rec_late_fee", "total_rec_prncp"))
+```
+
+在认真观察剩余39个属性的过程中，我们凭经验能判断一些与我们所要研究内容不相关或者极其不重要的变量。同时我们也发现了一些较为复杂，非专业人士无法解释的属性，所以我们把这些属性删除。
+
+```{r}
+loan_cleaned <- within(loan_cleaned, rm("sub_grade","pymnt_plan","delinq_2yrs","earliest_cr_line","open_acc","pub_rec","revol_bal","revol_util","total_acc","initial_list_status","collection_recovery_fee","recoveries","last_pymnt_amnt","next_pymnt_d","last_credit_pull_d","collections_12_mths_ex_med","policy_code","application_type","verification_status_joint","total_rev_hi_lim","dti","installment"))
+```
+
+查看剩余属性中的缺失值数量
+
+```{r}
+colSums(is.na(loan_cleaned))
+```
+ 
+ 这里要考虑一下最后三列和inq_last_6mths是否直接删掉。除了这三列没有缺失值，所以不考虑缺失值的填充。需要进行分析的属性j就此确定。
+假设把以上4列数据去除
+
+```{r}
+loan_cleaned <- within(loan_cleaned, rm("inq_last_6mths", "acc_now_delinq", "tot_coll_amt", "tot_cur_bal"))
+```
+
+
+## 2.3异常值处理
+
+```{r}
+glimpse(loan_cleaned)
+```
+一共13列数据，其中loan_amnt、int_rate为数值型，其余为文本。
+
+## 2.3.1数值型数据异常值处理
+
+```{r}
+opar <- par(no.readonly = TRUE)
+par(mfrow = c(1,3))
+boxplot(loan_cleaned$loan_amnt,xlab="loan_amnt")
+boxplot(loan_cleaned$int_rate,xlab="int_rate")
+loan_cleaned$annual_inc <- as.numeric(loan_cleaned$annual_inc)
+boxplot(loan_cleaned$annual_inc)
+par(opar)
+```
+
+由上图能发现loan_amnt属性不存在异常值，但int_rate属性存在异常值，我们用盖帽法处理这些异常值。
+盖帽法：整行替换数据框里99%以上和1%以下的点，将99%以上的点值=99%的点值；小于1%的点值=1%的点值。
+
+```{r}
+int_rate99 <- quantile(loan_cleaned$int_rate, 0.999)
+loan_cleaned[loan_cleaned$int_rate>int_rate99,]$int_rate <- int_rate99
+boxplot(loan_cleaned$int_rate,xlab="int_rate")
+```
+
+### 2.3.2文本异常值处理
+
+```{r}
+summary(loan_cleaned)
+```
+
+在上述信息中，我们能发现home_ownership属性列中有四个异常值，在verification_status属性列中有一个异常值.由于异常值数量极少，所以直接将异常值在数据集中删除。
+
+```{r}
+loan_cleaned = filter(loan_cleaned, home_ownership !='65000.0')
+loan_cleaned = filter(loan_cleaned, home_ownership !='ANY')
+loan_cleaned = filter(loan_cleaned, verification_status !="2019/11/15")
+```
+
+## 2.4数据标准化
+
+### 2.4.1因子化
+
+```{r}
+loan_cleaned$term <- as.factor(loan_cleaned$term)
+loan_cleaned$grade <- as.factor(loan_cleaned$grade)
+loan_cleaned$emp_length <- as.factor(loan_cleaned$emp_length)
+loan_cleaned$home_ownership <- as.factor(loan_cleaned$home_ownership)
+loan_cleaned$verification_status <- as.factor(loan_cleaned$verification_status)
+loan_cleaned$loan_status <- as.factor(loan_cleaned$loan_status)
+loan_cleaned$purpose <- as.factor(loan_cleaned$purpose)
+loan_cleaned$addr_state <- as.factor(loan_cleaned$addr_state)
+```
+
+
+
+

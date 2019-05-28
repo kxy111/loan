@@ -1,0 +1,404 @@
+---
+title: "Analysis"
+output:
+  html_notebook:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+  html_document:
+    df_print: paged
+    toc: yes
+---
+
+```{r}
+library(choroplethrMaps)
+library(magrittr)
+library(DescTools)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(gmodels)
+library(gridExtra)
+library(tidyverse)
+library(DescTools)
+library(choroplethr)
+library(ggthemes)
+library('corrplot',quietly = TRUE) # visualization
+library(maps)
+```
+
+```{r}
+library(gmodels)
+library(gridExtra)
+library(tidyverse)
+library(wordcloud2)
+```
+
+```{r}
+library(magrittr)
+```
+
+```{r}
+loan_cleaned <- read.csv("F:\\BDA\\loan_cleaned.csv")
+```
+
+```{r}
+loan_cleaned1 <- loan_cleaned
+```
+
+
+**Loan_Status VS. Percent**
+
+```{r}
+options(repr.plot.width=24, repr.plot.height=16)
+
+loan_status.pct <- loan_cleaned %>% group_by(loan_status) %>% 
+dplyr::summarise(count=n()) %>% mutate(pct=count/sum(count))
+
+ggplot(loan_status.pct, aes(x=reorder(loan_status, pct), y=pct, colour=loan_status, fill=loan_status)) +
+  geom_bar(stat="identity",aes(color = I('black')), size = 0.1)+ coord_flip()+ 
+theme(legend.position = "none")+ xlab("Loan_Status") + ylab("Percent")
+```
+Conclusion:  
+--Among all present Loan_Status, CURRENT accounts for more than 60%, FULLY PAID for nearly 30%, CHARGED OFF for about 5%, and other states account for precious little. This shows that the loan repayment situation is generally good, and 80% of the deals have been successfully repaid except the loans being repaid.
+
+
+**Term with Percent of default Vs. No default**
+
+```{r}
+loan_cleaned <- filter(loan_cleaned, loan_cleaned$loan_status == "Fully Paid" | loan_cleaned$loan_status == "Charged Off")
+loan_cleaned <- mutate(loan_cleaned, binary_status=as.numeric(ifelse(loan_cleaned$loan_status == "Fully Paid", 1, 0)))
+```
+
+```{r}
+options(repr.plot.width=12, repr.plot.height=8)
+#i. Term and Loan Status
+ggplot(loan_cleaned, aes(x =term, fill = loan_status)) + geom_bar(stat='count', position='fill', aes(color = I('black')), size = 0.1) + 
+labs(x = 'Term') + 
+ylab("Percent of default Vs No default") +theme_few()
+```
+
+Conclusion:  
+--The default rate is related to the repayment term., the default rate is about 15% when the repayment period is 36 months, while it exceeds 25% when the term is 60 months. This indicates that the longer the repayment lasts, the higher the borrower's default risk is (usually the longer the loan term, the higher the annual interest rate). It is suggested to focus on loan projects with a loan term of 60 months.
+
+
+**Grade & Percent & Loan_Stauts**
+
+```{r}
+ggplot(loan_cleaned, aes(x = grade, fill = loan_status)) + geom_bar(stat='count', position='fill', aes(color = I('black')), size = 0.1) + 
+labs(x = 'Grade') +labs(y = 'Percent')+ scale_fill_discrete(name="Loan_Status") +theme_few()
+```
+Conclusion:  
+--Default rates are different for different credit grades. Generally speaking, Default is rare if the grade is high. This implies that A-level loans (with the highest credit rating) mean the lowest risk of loan default, while G-level loans (with the lowest credit rating) mean the higher risk. The index of credit rating provides a good distinction between default and non-default, so more attention should be paid to credit rating when lending.
+
+
+
+**Purpose of Loan with Respect to Default**
+
+```{r}
+loan_cleaned %>% group_by(purpose) %>% summarise(default.pct = (1-sum(binary_status)/n())) %>% 
+ggplot(aes(x = reorder(purpose, default.pct), y = default.pct)) +
+  geom_bar(stat = "identity", fill =  "coral", aes(color = I('black')), size = 0.1)+coord_flip()+xlab("Purpose") + ylab("default percent")+ 
+theme_few()
+```
+
+Conclusion:  
+--Transactions with different loan purposes have different default rates. The default rate of loans for small enterprises (30%) is significantly higher than that of loans for other purposes.By contrast, the default risk for family loans such as car purchase and marriage is not high (10%-15%). When lending, institutions can estimate the default risk according to different loan purposes and take different measures to ensure the timeliness of repayment
+
+
+**States with default percent**
+
+```{r}
+options(repr.plot.width=6, repr.plot.height=8)
+#vii. State and Loan Status
+state.status <- loan_cleaned %>% group_by(addr_state) %>% 
+summarise(default.pct = (1-sum(binary_status)/n()))
+ggplot(state.status, aes(x = reorder(addr_state, default.pct), y = default.pct)) +
+  geom_bar(stat = "identity", fill = "lightblue2", aes(color = I('white')), size = 0.1)+coord_flip()+xlab("States") + ylab("default percent")+ 
+theme_few()
+```
+
+Conclusion:  
+--The default rate varies among regions. According to historical data, each state can develop strategy to strengthen risk prevention and control in order to reduce the default rate of local loans.
+
+**Interest Rate & Percent of default Vs.No default**
+
+```{r}
+#ii. Interest Rate and Loan Status
+ggplot(loan_cleaned, aes(x= int_rate, fill = loan_status)) +
+geom_histogram(bins = 10, position = "fill", aes(color = I('black')), size = 0.1)+ 
+xlab("Interest Rate")+ 
+ylab("Percent of default Vs No default")+theme_few()
+```
+
+Conclusion:  
+--The loan interest rate affects the default rate. It is not difficult to understand that the higher loan interest rate signifies the higher default risk.
+
+
+**loan_amnt & count & grade**
+
+```{r}
+ggplot(data=loan_cleaned,aes(loan_amnt, col=grade))+
+  geom_histogram(bins=40) + 
+  facet_grid(grade ~ .)
+```
+
+Conclusion:  
+--Big data on loans reveals that the transactions with an amount of about 10,000 dollars are the most among different grades.
+
+
+
+```{r}
+ggplot(data=loan_cleaned,aes(loan_amnt, fill=grade))+
+  geom_density(alpha=0.25) + 
+  facet_grid(grade ~ .)
+```
+
+Conclusion:  
+--In A-D grades, loan transactions are concentrated between 5,000 and 15,000. E-G grades are more distributed in larger amounts. Overall, the lower the credit rates are, the higher the transaction is.
+
+**loan_amt & grade**
+
+```{r}
+ggplot(loan_cleaned, aes(x=grade, y=loan_amnt, fill=grade)) +
+  stat_summary(fun.y="sum", geom="bar") +
+  labs(y ="Total Loan Amount",title="Total loan amount based on loan grade")
+```
+
+Conclusion:  
+--In the seven loan grades, the loan amount of Grade B and Grade C is the highest, followed by the AD Grade, and the FG loan of low Grade is relatively few.
+
+
+**王诺伊能看懂的图**
+
+
+Conclusion:  
+--loan_amt, fund and instlmnt have strong correlation.
+
+
+**Average Payment & Average funded amount & Grade**
+
+```{r}
+loan_cleaned%>%group_by(grade)%>%summarise(tamt=mean(total_pymnt)) -> data1
+loan_cleaned%>%group_by(grade)%>%summarise(famt = mean(funded_amnt))-> data3
+plot1 <- barchart(tamt ~ grade, data=data1, xlab="Grade", ylab="Average Payment")
+plot2 <- xyplot(famt~as.factor(grade), data=data3, type="l", ylab = "Average funded amount")
+doubleYScale(plot1, plot2, style1 = TRUE, add.ylab2 = TRUE)
+```
+
+Conclusion:  
+--The average of different levels of repayment and aid is different. The lower a borrower's credit rating is, the more they repay and the more aid they receive.
+
+
+**州之间的金融热图**
+
+```{r}
+loan_cleaned$region <- loan_cleaned$addr_state
+loan_cleaned$region <- as.factor(loan_cleaned$region)
+levels(loan_cleaned$region)<- c("alaska", "alabama","arkansas", "arizona", "california","colorado","connecticut","district of columbia","delaware","florida","georgia","hawaii","iowa","idaho","illinois","indiana","kansas","kentucky","louisiana","massachusetts","maryland","maine","michigan","minnesota","missouri","mississippi","montana","north carolina","north dakota","nebraska","new hampshire","new jersey","new mexico","nevada","new york","ohio","oklahoma","oregon","pennsylvania","rhode island","south carolina","south dakota","tennessee","texas","utah","virginia","vermont","washington","wisconsin","west virginia","wyoming")
+
+all_states <- map_data("state")
+state_by_loan <-loan_cleaned %>% group_by(region) %>%
+                summarise(value = sum(loan_amnt, na.rm=TRUE))
+state_by_loan$region <- as.character(state_by_loan$region)
+
+Total <- merge(all_states, state_by_loan, by="region")
+
+p <- ggplot()
+p <- p + geom_polygon(data=Total, aes(x=long, y=lat, group = group, fill=Total$value),colour="white"
+      ) + scale_fill_continuous(low = "skyblue", high = "darkblue", guide="colorbar")
+P1 <- p + theme_bw()  + labs(fill = "Gradient of loan amount" 
+                            ,title = "Heat Map of loan amount in all states", x="", y="")
+P1 + scale_y_continuous(breaks=c()) + scale_x_continuous(breaks=c()) + theme(panel.border =  element_blank())
+```
+
+Conclusion:  
+--From the plot, loan amount lended is highest in California.
+
+
+
+**时间与处理贷款数量**
+
+
+自己定义了一个画图函数
+```{r}
+options(scipen=999)
+mytheme <- theme(axis.text.x=element_text(angle =90, size=8, vjust = 0.4),
+                  plot.title=element_text(size=10, vjust = 2, family="Georgia",face = "bold", margin = margin(b = 15)),
+                  axis.title.y = element_text(size=8,margin = margin(r = 20)),
+                  axis.title.x =element_text(size=8, vjust = -0.35, margin = margin(t = 20)),
+                  plot.background = element_rect(fill = "#EDEFF7"),
+                  panel.background = element_rect(fill = "#EDEFF7" ),
+                  legend.background = element_rect(fill = "#EDEFF7"),
+                  legend.title = element_text(size = 10, family = "Arial", face = "bold"),
+                  legend.text = element_text(size = 8, family = "Arial"),
+                  panel.grid.major = element_line(size = 0.4, linetype = "solid", color = "#cccccc"),
+                  panel.grid.minor = element_line(size = 0),
+                  axis.ticks = element_blank(),
+                  plot.margin = unit(c(0.5, 1, 1, 1), "cm")
+)
+colors = c("#9E0142", "#D53E4F", "#F46D43" ,"#FDAE61", "#FEE08B", "#e7fe8b","#bcfe8b","#8bfeb1","#8bc4fe","#8b96fe","#ad8bfe","#d98bfe","#fe8bd1","#fe8b96")
+```
+
+
+```{r}
+loan_cleaned$issue_month<-substr(loan_cleaned$issue_d,6,7)
+loan_cleaned$issue_year<-substr(loan_cleaned$issue_d,1,4)
+```
+
+**贷款率与贷款金额**
+
+```{r warning=FALSE}
+ggplot(loan_cleaned, aes(cut(int_rate,5.5),loan_amnt,fill=cut(int_rate,5.5)))+geom_violin()+mytheme+scale_fill_manual(values=colors)+stat_summary(fun.data=mean_sdl,  
+                 geom="pointrange", color="black")+labs(x="Interest Rate",y="Loan Amount",title="Does Interest Rate increses with Loan Amount?")+theme(legend.position = "")
+```
+Conclusion:  
+--The higher the interest rate is, the more the loan amount tends to be distributed in a higher range.
+
+
+
+**loan amt & percentage of total data points**
+
+```{r}
+histogram( ~ loan_amnt | term, data=loan_cleaned, xlab="Loan Amount", ylab="Percentage of total data points",layout=c(1,4))
+```
+Conclusion:  
+--The number of loans fluctuates greatly over year and month, indicating that the choice of loans by people or enterprises is greatly influenced by loan policies and macro trends. Lending institutions can regulate the loan market by adjusting policies and the state can monitor the market.
+
+
+
+**多边形**
+
+```{r}
+ggplot(data=loan_cleaned, aes(x=loan_amnt,col=purpose))+ geom_freqpoly(binwidth = 5000)
+```
+
+
+```{r}
+ggplot(data=loan_cleaned, aes(x=loan_amnt,y=..density.. ,col=purpose))+ geom_freqpoly(binwidth = 5000, centre = 2500)
+```
+Conclusion:  
+--No matter what the purpose of the loan is, the loan amount of about 10,000 dollar is the most popular.
+
+
+
+**贷款总数的增长**
+
+```{r}
+loan_cleaned1$issue_d <- as.Date(loan_cleaned1$issue_d)
+amnt_df <- loan_cleaned1 %>% 
+  select(issue_d, loan_amnt) %>% 
+  group_by(issue_d) %>% 
+  summarise(Amount = sum(loan_amnt))
+
+ts_amnt <- ggplot(amnt_df, 
+                  aes(x = issue_d, y = Amount))
+ts_amnt + geom_line() + xlab("Date issued")
+```
+
+```{r}
+amnt_df_grade <- loan_cleaned1 %>% 
+  select(issue_d, loan_amnt, grade) %>% 
+  group_by(issue_d, grade) %>% 
+  summarise(Amount = sum(loan_amnt))
+
+ts_amnt_grade <- ggplot(amnt_df_grade,aes(x = issue_d, y = Amount))
+ts_amnt_grade + geom_area(aes(fill=grade)) + xlab("Date issued")
+```
+
+conclusion:  
+--The total amount of loans increased steadily from 2008 to 2014 and fluctuated from 2014 to 2016. This shows that the loan mechanism is gradually increasing from 2008 to 2014, and the market environment fluctuates greatly from 2014 to 2016.
+
+**Interest rate by grade**
+
+```{r}
+Desc(int_rate ~ grade, loan_cleaned1, digits = 1, main = "Interest rate by grade", plotit = TRUE)
+```
+
+Conclusion:  
+--As the credit rating of loans rises, the loan interest rate falls. This approach is correct. On the one hand, it encourages lenders to try their best to upgrade their credit, and on the other hand, it reduces the losses caused by defaulting loans.
+
+**grade**
+
+```{r}
+loan = loan_cleaned %>%
+        mutate(loan_outcome = ifelse(loan_status %in% c('Charged Off' , 'Default') , 
+                                     1, 
+                                     ifelse(loan_status == 'Fully Paid' , 0 , 'No info')
+                                     ))
+
+```
+
+```{r}
+# Create the new dataset by filtering 0's and 1's in the loan_outcome column and remove loan_status column for the modelling
+loan2 = loan %>%
+        select(-loan_status) %>%
+        filter(loan_outcome %in% c(0 , 1))
+```
+
+```{r}
+ggplot(loan2 , aes(x = grade , y = ..count.. , fill = factor(loan_outcome , c(1 , 0) , c('Default' , 'Fully Paid')))) + 
+        geom_bar() + 
+        theme(legend.title = element_blank())
+```
+
+conclusion:  
+--The default rate of D-G is higher among different grades, which shows that credit rating is closely related to default rate
+
+**annual income & Loan Amount**
+
+```{r}
+ggplot(loan2[sample(244179 , 10000) , ] , aes(x = annual_inc , y = loan_amnt )) +
+        geom_point(alpha = 0.5 , size = 1.5,color = "#3299CC") + 
+        geom_smooth(se = F , color = 'darkred' , method = 'loess') +
+        xlim(c(0 , 50000)) + 
+        labs(x = 'Annual Income' , y = 'Loan Amount' )
+
+```
+
+conclusion:  
+--Loan amount shows a different trend across the annual income of $20000 a yearWhen annual income is low (below $20,000), the loan amount decreases as income grows.When annual income is above $20,000, the amount of loans increases steadily as annual income rises.
+
+**时间**
+
+```{r}
+loan1 <- loan_cleaned
+loan1$emp_length <- as.character(loan1$emp_length)
+loan1$emp_length[loan1$emp_length=="10+ years"]<- "more than 10 years"
+loan1$emp_length <- as.factor(loan1$emp_length)
+```
+
+```{r}
+mytheme <- theme(axis.text.x=element_text(angle =90, size=8, vjust = 0.4),
+                  plot.title=element_text(size=10, vjust = 2,face = "bold", margin = margin(b = 15)),
+                  axis.title.y = element_text(size=8,margin = margin(r = 20)),
+                  axis.title.x =element_text(size=8, vjust = -0.35, margin = margin(t = 20)),
+                  plot.background = element_rect(fill = "#EDEFF7"),
+                  panel.background = element_rect(fill = "#EDEFF7" ),
+                  legend.background = element_rect(fill = "#EDEFF7"),
+                  legend.title = element_text(size = 10,  face = "bold"),
+                  legend.text = element_text(size = 8),
+                  panel.grid.major = element_line(size = 0.4, linetype = "solid", color = "#cccccc"),
+                  panel.grid.minor = element_line(size = 0),
+                  axis.ticks = element_blank(),
+                  plot.margin = unit(c(0.5, 1, 1, 1), "cm"))
+```
+
+
+```{r}
+loan1 %>% 
+  select(annual_inc,emp_length,loan_amnt)%>%
+  group_by(emp_length)%>%
+  summarise(avg_inc=mean(annual_inc),avg_loan=mean(loan_amnt))%>%
+  arrange(desc(avg_loan))%>%
+  gather(key=avg,measure,avg_inc,avg_loan)%>%
+ggplot(aes(x=emp_length,y=measure,group=avg,fill=avg))+geom_bar(stat="identity",position="dodge")+mytheme+scale_fill_manual(values=c("#732ded","#33c14b")   )+labs(title="Avg Income vs Avg Loan")
+```
+
+COnclusion:  
+--As the years of work increased, the average income of the borrower and the average number of loans increased steadily.Among them, the loan amount always accounts for about half of the wage amount of the borrower.
+
+
+```{r}
+ggplot(data = loan_cleaned, aes(x=purpose,y=loan_amnt))+geom_boxplot() + facet_grid(grade ~ .)+theme(axis.text.x = element_text(angle=30, hjust=1))
+```

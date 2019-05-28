@@ -1,0 +1,121 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+# 决策树
+## 介绍
+决策树(Decision Tree）是在已知各种情况发生概率的基础上，通过构成决策树来求取净现值的期望值大于等于零的概率，评价项目风险，判断其可行性的决策分析方法，是直观运用概率分析的一种图解法。由于这种决策分支画成图形很像一棵树的枝干，故称决策树。分类树（决策树）是一种十分常用的分类方法，是一种监管学习。
+
+## 算法
+分类与回归树CART 模型采用与传统统计学完全不同的方式构建预测准则，它是以二叉树的形式给出，易于理解、使用和解释。由CART模型构建的预测树在很多情况下比常用的统计方法构建的代数学预测准则更加准确，且数据越复杂、变量越多，算法的优越性就越显著。
+
+CART是在给定输入随机变量X的条件下输出随机变量Y的条件概率分布的学习方法，CART有个特性就是其假设决策树全部是二叉树，其结点只有两种选择：“是”和“否”，也就是决策树递归的二分每个特征，最终得到决策树，通过不断的划分，将特征空间划分为有限个单元，并在这些单元上确定预测的概率分布。
+
+## 具体过程
+读入数据
+```{r}
+loan_tree<- read.csv("C:\\Users\\康新艺\\Desktop\\loan_cleaned_tree.csv",header=T)
+```
+
+数据处理
+```{r}
+#所有的日期型属性赋空值，不能应用于分类
+loan_tree$issue_d<-NULL
+loan_tree$earliest_cr_line<-NULL
+loan_tree$last_pymnt_d<-NULL
+loan_tree$next_pymnt_d<-NULL
+loan_tree$last_credit_pull_d<-NULL
+#要使用“dplyr”包中的功能：选择数据表的行filter函数
+library(dplyr)
+#“%>%”管道符，提升代码运行效率；filter函数过滤出原数据里面loan_status值为“已付”、“坏账”的行，过滤出符合条件的25万余行
+loan_cleaned=loan_tree%>%filter(loan_tree$loan_status=="Fully Paid"|loan_tree$loan_status=="Charged Off") 
+loan_cleaned$loan_status <-as.character(loan_cleaned$loan_status)
+#“贷款状态”属性值转为0、1值
+loan_cleaned$loan_status[loan_cleaned$loan_status=="Fully Paid"] <- 0
+loan_cleaned$loan_status[loan_cleaned$loan_status=="Charged Off"] <- 1
+```
+
+产生训练集、测试集并查看其内部分布
+```{r}
+#set.seed()函数是为了保证随机生成的随机数前后一致
+set.seed(1)
+#抽样函数sample(抽样范围，抽样次数)
+sub<-sample(1:nrow(loan_cleaned),round(nrow(loan_cleaned)*2/3))
+#训练集、测试集基本结构
+length(sub)
+data_train<-loan_cleaned[sub,]
+data_test<-loan_cleaned[-sub,]
+dim(data_train)
+dim(data_test)
+table(data_train$loan_status)
+table(data_test$loan_status)
+```
+
+建模，观察模型的结果
+```{r}
+#“rpart”包：用于构建回归决策树的一个包
+library(rpart)
+#rpart函数：rpart(formula, data)formula即为需要构建的公式，需要一个响应变量，当data为数据框时，除了响应变量y剩余的全部作为预测变量时，可以使用y~.替换;data即为输入模型的数据集。
+tree.fit <- rpart(loan_status ~ ., data=data_train)
+#观察结果
+print(tree.fit$cptable)
+```
+
+剪枝
+```{r}
+#prune函数可以实现最小代价复杂度剪枝法，对于CART的结果，每个节点均输出一个对应的cp，prune函数通过设置cp参数来对决策树进行修剪,cp为复杂度系数，用下面的方法选择具有最小xerror的cp的办法
+optcp <- tree.fit$cptable[which.min(tree.fit$cptable[, "xerror"]), "CP"]
+prune.tree <- prune(tree.fit, cp=optcp)
+```
+
+画出决策树
+画法1：
+```{r}
+library(partykit)
+library(rpart.plot)
+library(rattle)
+library(RColorBrewer)
+fancyRpartPlot(prune.tree)
+```
+
+画法2：
+```{r}
+#绘制剪枝后的决策树
+rpart.plot.version1(prune.tree)
+```
+
+输出规则，即分类结果如下：
+```{r}
+asRules(prune.tree)
+```
+
+在测试集上做预测
+```{r}
+#使用模型对测试集进行预测
+library(pROC)
+rpart.pred<-predict(prune.tree,data_test)
+```
+
+预测结果如下：
+```{r}
+#rpart.pred结果有两列，第一列是为0的概率，第二列是为1的概率，通过设定阀值，得到预测分类的结果。看测试的效果，预测正确的有多少，预测错误的有多少
+pre<-ifelse(rpart.pred[,2]>0.5,1,0)
+table(pre)
+n<-table(data_test$loan_status,pre)
+n#看分布情况
+percantage<-c(n[1,1]/sum(n[1,]),n[2,2]/sum(n[2,]))
+percantage
+```
+由上表可见，分类结果的真正率可达98%左右，分类效果显著。
+
+绘制ROC曲线
+```{r}
+auc(roc(data_test$loan_status,pre))#ROC曲线下的面积
+
+modelroc<-roc(data_test$loan_status,pre)#括号内为实际分类结果和预测分类结果
+#画出ROC曲线
+plot(modelroc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),grid.col=c("green", "red"), max.auc.polygon=TRUE,auc.polygon.col="skyblue", print.thres=TRUE)
+```
+
